@@ -1,0 +1,7 @@
+C:\Users\Aaron\AppData\Local\Temporary Projects\Programmierpraktikum\bin\Debug\Programmierpraktikum.exe.config
+C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\bin\Debug\Programmierpraktikum.exe.config
+C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\bin\Debug\Programmierpraktikum.exe
+C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\bin\Debug\Programmierpraktikum.pdb
+C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\obj\Debug\Programmierpraktikum.csprojResolveAssemblyReference.cache
+C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\obj\Debug\Programmierpraktikum.exe
+C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\obj\Debug\Programmierpraktikum.pdb
