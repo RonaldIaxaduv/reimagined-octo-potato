@@ -7,7 +7,7 @@ namespace Programmierpraktikum
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("Welcome to the main menu! Enter 1 to play 4-In-A-Row, 2 to play Chomp or anything else to exit the program.");
+            Console.WriteLine("Welcome to the main menu! Enter 1 to play Connect Four, 2 to play Chomp or anything else to exit the program.");
             bool validInput = false;
             int input = 0;
 
@@ -23,8 +23,17 @@ namespace Programmierpraktikum
 
             switch (input)
             {
-                case 1: //play 4-In-A-Row
-                    //WIP: link 4-in-a-row
+                case 1: //play Connect 4
+                    //ConnectFour.ConnectFour cf = new ConnectFour.ConnectFour(); cf.startGame();
+                    
+                    try
+                    { ConnectFour.ConnectFour cf = new ConnectFour.ConnectFour(); cf.startGame(); }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine("An error has occurred: " + e.Message);
+                        Console.WriteLine("");
+                    }
+                    
                     break;
 
 

@@ -14,4 +14,10 @@ public class Player
         { this.name = name; }
         this.type = type;
     }
+
+    public Player()
+    {
+        name = "";
+        this.type = playerType.Computer;
+    }
 }

@@ -4,13 +4,15 @@ using System.Collections.Generic;
 
 public class Chomp : Game, Loggable
 {
-    public Stack<TurnData> turnStack;
+    private Stack<TurnData> turnStack;
     public Stack<TurnData> turnStackProp
     {
         get { return turnStack; }
         set { turnStack = value; }
     }
     private int firstPlayer;
+    private bool running = true;
+    private const int DIFF = 3; //difficulty (number of turns that the AI calculates in advance)
 
     public Chomp(Size boardSize, Player.playerType opponentType, string[] playerNames, int firstPlayer)
     {
@@ -44,6 +46,10 @@ public class Chomp : Game, Loggable
 
         //start game
         round();
+
+        //run game until end (which will cancel the following loop automatically). it has been put into a loop instead of being recursive so that no stack overflows can occur
+        while (running) 
+        { round(); }
     }
 
     public override void round()
@@ -54,12 +60,10 @@ public class Chomp : Game, Loggable
             if (!((ChompBoard)board).squares[0, 0])
             {
                 Console.WriteLine(players[selection].name + " has won.");
-                gameWon(players[selection]);
+                gameWon(players[selection]); //will cancel the game afterwards
                 return;
             }
         }
-
-        round(); //WIP: find a good way to not make this recursive (could theoretically cause memory overflow)
     }
     public override void turn(Player player)
     {
@@ -101,31 +105,30 @@ public class Chomp : Game, Loggable
         }
     }
 
-    //WIP: make the following methods async?
-    //WIP: Optimal is too resource intense
-    //WIP: MinEven isn't optimal enough (needs to avoid situations in which the next turn will leave a single remaining row, e.g. 16x7 -> [4,4])
     private Point computerTurn()
     {
         ChompBoard thisBoard = (ChompBoard)board;
-        Point destination = aaronsChoice(thisBoard.squares); //look for several simple win conditions
+        Point destination = getWinningPoint(thisBoard.squares); //look for several simple win conditions
 
         if (destination == new Point(-1, -1))
         {
+            //simple AI
             /*
-            destination = biasedRandom(thisBoard.squares); //look for a point that doesn't result in a simple win condition for the other player
+            destination = getBiasedRandom(thisBoard.squares); //look for a point that doesn't result in a simple win condition for the other player
             if (destination == new Point(-1, -1))
-            { Console.WriteLine("fullRandom"); return fullRandom(thisBoard.squares); } //select random
-            else Console.WriteLine("biasedRandom");
+            { Console.WriteLine("getFullRandom"); return getFullRandom(thisBoard.squares); } //select random
+            else Console.WriteLine("getBiasedRandom");
             */
 
-            
+            //advanced with list (can display total number of remaining choices)
+            /*
             List<Point> nextLs;
-            for (int degree = 5; degree > 0; degree--)
+            for (int degree = DIFF; degree > 0; degree--)
             {
                 try
-                { nextLs = biasedRandomRecursive(thisBoard.squares, degree); Console.WriteLine("Degree " + degree + ": " + nextLs.Count + " choices."); }
+                { nextLs = getBiasedRandomRecursive(thisBoard.squares, degree); Console.WriteLine("Degree " + degree + ": " + nextLs.Count + " choices."); }
                 catch (Exception e)
-                { Console.WriteLine(degree + " failed."); continue; }
+                { Console.WriteLine(degree + " failed: " + e.Message); continue; }
 
                 if (nextLs.Count > 0)
                 { destination = nextLs[(new Random()).Next(nextLs.Count)]; }
@@ -133,14 +136,27 @@ public class Chomp : Game, Loggable
 
                 if (destination != new Point(-1, -1)) return destination;
             }
-            Console.WriteLine("fullRandom"); return fullRandom(thisBoard.squares);
-            
+            Console.WriteLine("getFullRandom"); return getFullRandom(thisBoard.squares);
+            */
+
+            //advanced with point
+            for (int degree = DIFF; degree > 0; degree--)
+            {
+                try
+                { destination = getBiasedRandomRecursivePoint(thisBoard.squares, degree); }
+                catch (Exception e)
+                { Console.WriteLine(degree + " failed: " + e.Message); continue; }
+
+                if (destination != new Point(-1, -1)) return destination;
+            }
+            Console.WriteLine("getFullRandom"); return getFullRandom(thisBoard.squares);
+
         }
-        else Console.WriteLine("aaronsChoice");
+        else Console.WriteLine("getWinningPoint");
 
         return destination;
     }
-    private Point aaronsChoice(bool[,] fields)
+    private Point getWinningPoint(bool[,] fields)
     {
         //this function handles several simple win conditions. if a constellation isn't handled, (-1,-1) is returned.
 
@@ -218,7 +234,7 @@ public class Chomp : Game, Loggable
 
         return new Point(-1, -1);
     }
-    private Point biasedRandom(bool[,] fields)
+    private Point getBiasedRandom(bool[,] fields)
     {
         //this function select a random viable point in fields that doesn't result in a non-negative output of aaronsChoice (i.e. the other player is less likely to make a winning snap with their next turn). if there are none, (-1,-1) is returned.
         //note: by adding another index variable as an argument, this function could be used to calculate x turns in advance -> difficulty selection possible
@@ -251,7 +267,7 @@ public class Chomp : Game, Loggable
                         }
                     }
 
-                    if (aaronsChoice(snapped) == new Point(-1, -1)) //no easy optimal choice -> consider
+                    if (getWinningPoint(snapped) == new Point(-1, -1)) //no easy optimal choice -> consider
                     { viable.Add(new Point(x, y)); }
                 }
             }
@@ -264,7 +280,7 @@ public class Chomp : Game, Loggable
 
         return new Point(-1, -1);
     }
-    private Point fullRandom(bool[,] fields)
+    private Point getFullRandom(bool[,] fields)
     {
         //this function returns a random viable point in fields
 
@@ -288,7 +304,7 @@ public class Chomp : Game, Loggable
         return viable[(new Random()).Next(viable.Count)];
     }
 
-    private Point biasedRandomRecursivePt(bool[,] fields, int degree)
+    private Point getBiasedRandomRecursivePt(bool[,] fields, int degree)
     {
         //this function select a random viable point in fields that doesn't result in a non-negative output of aaronsChoice (i.e. the other player is less likely to make a winning snap with their next turn). if there are none, (-1,-1) is returned.
         //degree: number of possible turns that the function calculates in advance; >0
@@ -330,12 +346,12 @@ public class Chomp : Game, Loggable
 
                     if (degree > 1)
                     {
-                        if (degree % 2 == 0 ^ biasedRandomRecursivePt(snapped, degree - 1) == new Point(-1, -1)) //EITHER next turn == opponent's turn and no winning turns exist OR next turn == my turn and winning turn exists
+                        if (degree % 2 == 0 ^ getBiasedRandomRecursivePt(snapped, degree - 1) == new Point(-1, -1)) //EITHER next turn == opponent's turn and no winning turns exist OR next turn == my turn and winning turn exists
                         { viable.Add(new Point(x, y)); }
                     }
                     else //degree == 1
                     {
-                        if (aaronsChoice(snapped) == new Point(-1, -1))
+                        if (getWinningPoint(snapped) == new Point(-1, -1))
                         { viable.Add(new Point(x, y)); }
                     }                    
                 }
@@ -348,24 +364,19 @@ public class Chomp : Game, Loggable
 
         return new Point(-1, -1);
     }
-    private List<Point> biasedRandomRecursive(bool[,] fields, int degree)
+    private List<Point> getBiasedRandomRecursive(bool[,] fields, int degree)
     {
         //this function select a random viable point in fields that doesn't result in a non-negative output of aaronsChoice (i.e. the other player is less likely to make a winning snap with their next turn). if there are none, (-1,-1) is returned.
-        //degree: number of possible turns that the function calculates in advance; >0; MUST CURRENTLY BE UNEVEN AT FIRST
-        //simple description: biasedRandomRecursive(bool[,] fields, [UNEVEN number x]) -> "With these Points, the opponent probably cannot make a winning snap in x turns"
-        //                    biasedRandomRecursive(bool[,] fields, [EVEN number y]) -> "With these Points, I probably cannot make a winning snap in y turns"
+        //degree: number of possible turns that the function calculates in advance; >0
 
         if (degree < 1)
         { throw new Exception("Invalid value of degree."); }
 
         List<Point> viable = new List<Point>();
-        List<Point> priorityTargets = new List<Point>();
 
         //get viable
         if (!(fields[0, 1] || fields[1, 0]))
         {
-            //if (degree % 2 == 1)
-            //{ viable.Add(new Point(0, 0)); }
             viable.Add(new Point(0, 0));
             return viable;
         }
@@ -392,100 +403,81 @@ public class Chomp : Game, Loggable
                     }
 
                     if (degree > 1)
-                    {
-                        
-
-                        //if (x == 1 && y == 2) Console.WriteLine(degree + "!: " + nextDeg.Count);
-
-                        /*
-                        if ((degree % 2 == 0 ^ aaronsChoice(snapped) == new Point(-1, -1)))
-                        //{ if (nextDeg.Count == 0 || nextDeg.Contains(new Point(x, y))) viable.Add(new Point(x, y)); }
+                    {                       
+                        if (getWinningPoint(snapped) == new Point(-1, -1)) //take a further look at the usual viable points
                         {
-                            //if (nextDeg.Count == 0 || nextDeg.Contains(new Point(x, y))) viable.Add(new Point(x, y));
-                            viable.Add(new Point(x, y));
-                            if (nextDeg.Count > 0)
-                            {
-                                for (int i = 0; i < nextDeg.Count; i++)
-                                {
-                                    if (!priorityTargets.Contains(nextDeg[i])) priorityTargets.Add(nextDeg[i]);
-                                }
-                            }
-                        }
-                        */
-
-                        /*
-                        if (aaronsChoice(snapped) == new Point(-1, -1))
-                        {
-                            viable.Add(new Point(x, y));
-                            if (nextDeg.Count > 0)
-                            {
-                                for (int i = 0; i < nextDeg.Count; i++)
-                                {
-                                    if (!priorityTargets.Contains(nextDeg[i])) priorityTargets.Add(nextDeg[i]);
-                                }
-                            }                         
-                        }
-                        */
-
-                        /*
-                        if (aaronsChoice(snapped) == new Point(-1, -1) && nextDeg.Count == 0) viable.Add(new Point(x, y));
-                        else
-                        {
-                            if (nextDeg.Count > 0)
-                            {
-                                for (int i = 0; i < nextDeg.Count; i++)
-                                {
-                                    if (!priorityTargets.Contains(nextDeg[i])) priorityTargets.Add(nextDeg[i]);
-                                }
-                            }                            
-                        }
-                        */
-
-                        if (aaronsChoice(snapped) == new Point(-1, -1)) //take a further look at the usual viable points
-                        {
-                            List<Point> nextDeg = biasedRandomRecursive(snapped, degree - 1);
+                            List<Point> nextDeg = getBiasedRandomRecursive(snapped, degree - 1);
                             if (nextDeg.Count == 0) //next player would not have a good answer (i.e. the game is basically won) -> remember
-                            {
-                                viable.Add(new Point(x, y));
-                                //Console.WriteLine("Taken (degree " + degree + ").");
-                            }
+                            { viable.Add(new Point(x, y)); }  //Console.WriteLine("Taken (degree " + degree + ")."); }
                         }
-
                     }
                     else //degree == 1 -> like the original biasedRandom
                     {
-                        if (aaronsChoice(snapped) == new Point(-1, -1))
+                        if (getWinningPoint(snapped) == new Point(-1, -1))
                         { viable.Add(new Point(x, y)); }
                     }                   
-
-                    /*
-                    if (degree > 1)
-                    {
-                        if (degree % 2 == 0 ^ biasedRandomRecursive(snapped, degree - 1) == new Point(-1, -1)) //EITHER next turn == opponent's turn and no winning turns exist OR next turn == my turn and winning turn exists
-                        { viable.Add(new Point(x, y)); }
-                    }
-                    else //degree == 1
-                    {
-                        if (aaronsChoice(snapped) == new Point(-1, -1))
-                        { viable.Add(new Point(x, y)); }
-                    }*/
                 }
             }
         }
 
-        /*
-        if (priorityTargets.Count > 0 && viable.Count > 0)
+        return viable;
+    }
+    private Point getBiasedRandomRecursivePoint(bool[,] fields, int degree)
+    {
+        //this function select a random viable point in fields that doesn't result in a non-negative output of aaronsChoice (i.e. the other player is less likely to make a winning snap with their next turn). if there are none, (-1,-1) is returned.
+        //degree: number of possible turns that the function calculates in advance; >0
+
+        if (degree < 1)
+        { throw new Exception("Invalid value of degree."); }
+
+        List<Point> viable = new List<Point>();
+
+        //get viable
+        if (!(fields[0, 1] || fields[1, 0]))
         {
-            //Console.WriteLine(priorityTargets.Count + " priority targets.");
-            for (int i = 0; i < viable.Count; i++)
+            return new Point(0, 0);
+        }
+
+        for (int x = 0; x < fields.GetLength(0); x++)
+        {
+            for (int y = 0; y < fields.GetLength(1); y++)
             {
-                if (!priorityTargets.Contains(viable[i]))
-                { viable.RemoveAt(i); i--; }
+                if (fields[x, y])
+                {
+                    if (x == 0 && y == 0)
+                    { continue; }
+
+                    bool[,] snapped = clone2DArray<Boolean>(fields);
+                    for (int snapX = x; snapX < fields.GetLength(0); snapX++) //get fields after snapping at [x,y]
+                    {
+                        for (int snapY = y; snapY < fields.GetLength(1); snapY++)
+                        {
+                            if (snapped[snapX, snapY])
+                            { snapped[snapX, snapY] = false; } //set all squares to be active
+                            else
+                            { continue; } //all squares behind one that has already been broken off are false -> skip to next line
+                        }
+                    }
+
+                    if (degree > 1)
+                    {
+                        if (getWinningPoint(snapped) == new Point(-1, -1)) //take a further look at the usual viable points
+                        {
+                            if (getBiasedRandomRecursivePoint(snapped, degree - 1) == new Point(-1, -1)) //next player would not have a good answer (i.e. the game is basically won) -> remember
+                            { viable.Add(new Point(x, y)); }  //Console.WriteLine("Taken (degree " + degree + ")."); }
+                        }
+                    }
+                    else //degree == 1 -> like the original biasedRandom
+                    {
+                        if (getWinningPoint(snapped) == new Point(-1, -1))
+                        { viable.Add(new Point(x, y)); }
+                    }
+                }
             }
         }
-        */
 
-        return viable;
+        if (viable.Count < 1) return new Point(-1, -1);
+        else return viable[(new Random()).Next(viable.Count)];
     }
 
     private Rectangle containedRectangle(bool[,] fields)
@@ -522,7 +514,22 @@ public class Chomp : Game, Loggable
         }
         return output;
     }
+    private T[,] clone2DArray<T>(T[,] input)
+    {
+        T[,] output = new T[input.GetLength(0), input.GetLength(1)];
 
+        for (int x = 0; x < input.GetLength(0); x++)
+        {
+            for (int y = 0; y < input.GetLength(1); y++)
+            {
+                output[x, y] = input[x, y];
+            }
+        }
+
+        return output;
+    }
+
+    /*
     private Point computerTurnMinEven()
     {
         ChompBoard thisBoard = (ChompBoard)board;
@@ -599,17 +606,15 @@ public class Chomp : Game, Loggable
                 }
             }
 
-            ///*
-            for (int y = 0; y < thisBoard.size.Height; y++)
-            {
-                for (int x = 0; x < thisBoard.size.Width; x++)
-                {
-                    Console.Write(remSquares[x, y]);
-                    Console.Write("\t"); //tabulators inbetween the blocks
-                }
-                Console.WriteLine();
-            }
-            //*/
+            //for (int y = 0; y < thisBoard.size.Height; y++)
+            //{
+            //    for (int x = 0; x < thisBoard.size.Width; x++)
+            //    {
+            //        Console.Write(remSquares[x, y]);
+            //        Console.Write("\t"); //tabulators inbetween the blocks
+            //    }
+            //    Console.WriteLine();
+            //}
 
             if (!(minimumEven == new Point(thisBoard.size.Width, thisBoard.size.Height))) //contains a field that will leave the opponent with an even number of fields -> optimal -> remove as many squares as possible
             {
@@ -734,21 +739,7 @@ public class Chomp : Game, Loggable
         //no optimal turn found
         return false;
     }
-
-    private T[,] clone2DArray<T>(T[,] input)
-    {
-        T[,] output = new T[input.GetLength(0), input.GetLength(1)];
-
-        for (int x = 0; x < input.GetLength(0); x++)
-        {
-            for (int y = 0; y < input.GetLength(1); y++)
-            {
-                output[x, y] = input[x, y];
-            }
-        }
-
-        return output;
-    }
+    */
 
     private void gameWon(Player player)
     {
@@ -766,13 +757,14 @@ public class Chomp : Game, Loggable
             Console.WriteLine(td.player.name + ": " + td.coords);
         }
         */
+
+        running = false; //this will cause the round()-loop in the constructor to finish -> game ends -> back to main method in MainMenu
     }
 
     public void addTurn(Player player, Point coords)
     {
         turnStack.Push(new TurnData(player, coords));
     }
-
     public void removeTurn()
     {
         try
