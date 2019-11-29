@@ -136,7 +136,7 @@ namespace ConnectFour
                         SelectedColumn = Convert.ToInt32(Console.ReadLine());
                     }
 
-                    catch (Exception e) {
+                    catch (Exception) {
 
                         SelectedColumn = -1;
                     }

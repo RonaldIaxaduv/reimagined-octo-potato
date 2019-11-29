@@ -5,3 +5,5 @@ C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\bin\Debug\Progr
 C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\obj\Debug\Programmierpraktikum.csprojResolveAssemblyReference.cache
 C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\obj\Debug\Programmierpraktikum.exe
 C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\obj\Debug\Programmierpraktikum.pdb
+C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\obj\Debug\Programmierpraktikum.Properties.Resources.resources
+C:\Users\Aaron\Desktop\Programmierpraktikum\Programmierpraktikum\obj\Debug\Programmierpraktikum.csproj.GenerateResource.Cache
