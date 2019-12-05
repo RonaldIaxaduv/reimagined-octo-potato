@@ -2,32 +2,33 @@
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Runtime.Serialization.Formatters.Binary;
+using Communication;
+using System.Windows.Forms;
 
 
 public class ServerClientConnection
 {
-    private bool active = false;
     private const int bufferSize = 1000; //size of the buffer for the network stream
     private Socket handler = null;
     private NetworkStream netS = null;
     private BufferedStream bufS = null;
     public Server parentServer = null;
-    //private List<Communication.ClientCommands> clientMsgs = new List<Communication.ClientCommands>();
+    //private List<Commands.ClientCommands> clientMsgs = new List<Commands.ClientCommands>();
     private object receivedData;
 
     public string username = "";
     public bool online = false;
 
+
+    //basic behaviour
     public ServerClientConnection(Socket handler, Server parentServer)
     {
         this.handler = handler;
         this.parentServer = parentServer;
         netS = new NetworkStream(this.handler);
         bufS = new BufferedStream(netS, bufferSize);
-        active = true;
         StartConnection();
     }
 
@@ -35,14 +36,29 @@ public class ServerClientConnection
     {
         try
         { await listen(); }
+        catch (ObjectDisposedException)
+        { }
         catch (Exception e)
         { Console.WriteLine("Error: {0}", e.Message); }
 
-        handler.Shutdown(SocketShutdown.Both);
-        handler.Close();
+        if (username != "")
+        { Console.WriteLine("Shutting down ServerClientConnection of {0}.", username); }
+        else
+        { Console.WriteLine("Shutting down ServerClientConnection of pending user."); }
+
+        try
+        {
+            handler.Shutdown(SocketShutdown.Both);
+            handler.Close();
+            Shutdown().GetAwaiter().GetResult();
+        }
+        catch (ObjectDisposedException)
+        { }
+        catch (Exception e)
+        { Console.WriteLine("Error: {0}", e.Message); }
+
         Dispose();
     }
-
     private async Task listen()
     {
         /*this method can receive ANY type of data through the stream. it is based on: https://stackoverflow.com/questions/2316397/sending-and-receiving-custom-objects-using-tcpclient-class-in-c-sharp
@@ -56,9 +72,8 @@ public class ServerClientConnection
         int bytesRec = 0;
 
         //continuously read incoming confirmation until clients shuts down
-        while (active)
+        while (Connection.isConnected(handler))
         {
-            await Task.Delay(1000); //check for new messages every second
             if (netS.DataAvailable)
             {
                 while (bytesRec < comBlock.Length)
@@ -71,81 +86,96 @@ public class ServerClientConnection
                 }
                 uint command = BitConverter.ToUInt32(comBlock, 0); //first 4 bytes (more isn't read): command, i.e. what kind of object will be received
                 int dataSize = BitConverter.ToInt32(comBlock, 4); //second 4 bytes: length of the upcoming message (arrays can only have a size of int, so sending a uint wouldn't work)
-                Console.WriteLine("Received command number: {0}", command);
-                Console.WriteLine("Received data size: {0}", dataSize);
+                                                                  //Console.WriteLine("Received command number: {0}", command);
+                                                                  //Console.WriteLine("Received data size: {0}", dataSize);
 
-                await handleMessage(Communication.getClientCommand(command), dataSize);
+                await handleMessage(Commands.getClientCommand(command), dataSize);
 
                 //reset
                 bytesRec = 0;
             }
+            await Task.Delay(500); //check for new messages after a short delay
         }
     }
-    private async Task handleMessage(Communication.ClientCommands cCom, int dataSize)
+
+
+    //information processing, server-client communication
+    private async Task handleMessage(Commands.ClientCommands cCom, int dataSize)
     {
         switch (cCom)
         {
-            case Communication.ClientCommands.Ping:
-                await sendCommand(Communication.ServerCommands.PingReturn);
+            case Commands.ClientCommands.RequestCompareVersionNumber:
+                await receiveString(cCom, dataSize);
+                if (Application.ProductVersion == (string)receivedData)
+                { await sendCommand(Commands.ServerCommands.ValidVersionNumber); }
+                else
+                { await sendCommand(Commands.ServerCommands.InvalidVersionNumber); }
                 return;
 
-            case Communication.ClientCommands.SubmitUserName:
+            case Commands.ClientCommands.SubmitUserName:
                 await receiveString(cCom, dataSize);
-                if (parentServer.getRegisteredUsers().Contains((string)receivedData)) //submitted name contained in the list of registered users?
-                { await sendCommand(Communication.ServerCommands.UserNameFound); }
+                if (parentServer.getOnlineUsers().Contains((string)receivedData)) //the user going by this name is already logged in -> choose different name
+                { await sendCommand(Commands.ServerCommands.UserAlreadyOnline); }
+                else if (parentServer.getRegisteredUsers().Contains((string)receivedData)) //submitted name contained in the list of registered users?
+                { await sendCommand(Commands.ServerCommands.UserNameFound); }
                 else
-                { await sendCommand(Communication.ServerCommands.UserNameNotFound); }
+                { await sendCommand(Commands.ServerCommands.UserNameNotFound); }
                 username = (string)receivedData;
                 return;
 
-            case Communication.ClientCommands.SubmitPassword_ExistingUser:
+            case Commands.ClientCommands.SubmitPassword_ExistingUser:
                 await receiveString(cCom, dataSize);
                 if (parentServer.tryLogin(username, (string)receivedData))
                 {
-                    online = true;
-                    //WIP: notify all other online users
-                    await sendCommand(Communication.ServerCommands.LoginSuccessful);
-                    parentServer.activeConnections.Add(this);
+                    await sendCommand(Commands.ServerCommands.LoginSuccessful);
+                    await goOnline(); //sets online to true and notifies all users
                 }
                 else
-                { await sendCommand(Communication.ServerCommands.PasswordIncorrect); }
+                { await sendCommand(Commands.ServerCommands.PasswordIncorrect); }
                 break;
 
-            case Communication.ClientCommands.SubmitPassword_NewUser:
+            case Commands.ClientCommands.SubmitPassword_NewUser:
                 await receiveString(cCom, dataSize);
                 if (parentServer.tryRegister(username, (string)receivedData))
                 {
-                    online = true;
-                    //WIP: notify all other online users
-                    await sendCommand(Communication.ServerCommands.AccountCreatedSuccessfully);
-                    parentServer.activeConnections.Add(this);
+                    await sendCommand(Commands.ServerCommands.AccountCreatedSuccessfully);
+                    await goOnline(); //sets online to true and notifies all users
                 }
                 else
-                { await sendCommand(Communication.ServerCommands.ServerError); }
+                { await sendCommand(Commands.ServerCommands.ServerError); }
                 break;
 
-            case Communication.ClientCommands.RequestOnlineUserList:
-                await sendObject(Communication.ServerCommands.ReceiveList_String, parentServer.getRegisteredUsers()); //WIP (use getOnlineUsers)
+            case Commands.ClientCommands.RequestOnlineUserList:
+                await sendObject(Commands.ServerCommands.ReceiveList_String, parentServer.getOnlineUsers());
+                break;
+
+            case Commands.ClientCommands.RequestSendMessage:
+                await receiveObject(Commands.ClientCommands.RequestSendMessage, dataSize);
+                ChatMessage recMsg = (ChatMessage)receivedData;
+                if (await parentServer.sendMessage(recMsg))
+                { await sendCommand(Commands.ServerCommands.MessageSent); }
+                else
+                { await sendCommand(Commands.ServerCommands.ServerError); }
                 break;
 
 
             default:
-                Console.WriteLine("Unknown client command.");
+                Console.WriteLine("Unhandled client command ({0}).", cCom);
                 break;
         }
         return;
     }
 
-    //private async Task saveClientCommand(Communication.ClientCommands cCom)
+    //private async Task saveClientCommand(Commands.ClientCommands cCom)
     //{ clientMsgs.Add(cCom); }
     //private async Task awaitClientResponse(string commandString)
     //{
     //    while (clientMsgs.Count == 0 || !checkClientResponse(commandString))
     //    { await Task.Delay(1000); }
     //}
-    //private async Task awaitClientResponse(Communication.ClientCommands command)
+    //private async Task awaitClientResponse(Commands.ClientCommands command)
     //{
-    //    await awaitClientResponse(Communication.getClientCommandString(command));
+    //    await awaitClientResponse(getClientCommandString(command));
     //}
     //private bool checkClientResponse(string commandString)
     //{
@@ -155,9 +185,9 @@ public class ServerClientConnection
     //    }
     //    return false;
     //}
-    //private bool checkClientResponse(Communication.ClientCommands command)
+    //private bool checkClientResponse(Commands.ClientCommands command)
     //{
-    //    return checkClientResponse(Communication.getClientCommandString(command));
+    //    return checkClientResponse(getClientCommandString(command));
     //}
     //private void removeClientResponse(string commandString)
     //{
@@ -170,9 +200,9 @@ public class ServerClientConnection
     //        }
     //    }
     //}
-    //private void removeClientResponse(Communication.ClientCommands command)
+    //private void removeClientResponse(Commands.ClientCommands command)
     //{
-    //    removeClientResponse(Communication.getClientCommandString(command));
+    //    removeClientResponse(getClientCommandString(command));
     //}
 
     private async Task<byte[]> receiveData(int dataSize)
@@ -181,20 +211,27 @@ public class ServerClientConnection
         byte[] infBlock = new byte[dataSize];
         while (bytesRec < dataSize)
         { bytesRec += await netS.ReadAsync(infBlock, bytesRec, infBlock.Length - bytesRec); }
-        //WIP: if little endian is used by the system, infBlock might have to be reversed here
         return infBlock;
     }
-    private async Task receiveString(Communication.ClientCommands cCom, int dataSize)
+    private async Task receiveString(Commands.ClientCommands cCom, int dataSize)
     {
         receivedData = Encoding.Unicode.GetString(await receiveData(dataSize));
         //await saveClientCommand(cCom);
     }
+    private async Task receiveObject(Commands.ClientCommands cCom, int dataSize)
+    {
+        MemoryStream ms = new MemoryStream(await receiveData(dataSize));
+        BinaryFormatter bf = new BinaryFormatter();
+        ms.Position = 0;
+        receivedData = bf.Deserialize(ms);
+        //await saveClientCommand(cCom);
+    }
 
-    private async Task sendCommand(Communication.ServerCommands sCom)
+    private async Task sendCommand(Commands.ServerCommands sCom)
     {
         await sendObject(sCom, null);
     }
-    private async Task sendString(Communication.ServerCommands sCom, string str)
+    private async Task sendString(Commands.ServerCommands sCom, string str)
     {
         using (MemoryStream ms = new MemoryStream())
         {
@@ -206,14 +243,12 @@ public class ServerClientConnection
             { data = new byte[0]; }
 
             //send command number
-            //Console.WriteLine("Sent command number: {0}", Communication.getServerCommandUInt(sCom));
-            byte[] prep = BitConverter.GetBytes(Communication.getServerCommandUInt(sCom));
+            byte[] prep = BitConverter.GetBytes(Commands.getServerCommandUInt(sCom));
             if (BitConverter.IsLittleEndian) //target computer might use different endian -> send and receive as big endian and if necessary, restore to little endian in client
                 Array.Reverse(prep);
             await netS.WriteAsync(prep, 0, prep.Length); //write command (uint) to stream
 
             //send data size
-            //Console.WriteLine("Sent data size: {0}", data.Length);
             prep = BitConverter.GetBytes(data.Length);
             if (BitConverter.IsLittleEndian)
                 Array.Reverse(prep);
@@ -223,7 +258,7 @@ public class ServerClientConnection
             await netS.WriteAsync(data, 0, data.Length); //write object to stream
         }
     }
-    private async Task sendObject(Communication.ServerCommands sCom, object obj)
+    private async Task sendObject(Commands.ServerCommands sCom, object obj)
     {
         //see e.g.: https://stackoverflow.com/questions/2316397/sending-and-receiving-custom-objects-using-tcpclient-class-in-c-sharp
 
@@ -241,14 +276,12 @@ public class ServerClientConnection
             { data = new byte[0]; }
 
             //send command number
-            //Console.WriteLine("Sent command number: {0}", Communication.getServerCommandUInt(sCom));
-            byte[] prep = BitConverter.GetBytes(Communication.getServerCommandUInt(sCom));
+            byte[] prep = BitConverter.GetBytes(Commands.getServerCommandUInt(sCom));
             if (BitConverter.IsLittleEndian) //target computer might use different endian -> send and receive as big endian and if necessary, restore to little endian in client
                 Array.Reverse(prep);
             await netS.WriteAsync(prep, 0, prep.Length); //write command (uint) to stream
 
             //send data size
-            //Console.WriteLine("Sent data size: {0}", data.Length);
             prep = BitConverter.GetBytes(data.Length);
             if (BitConverter.IsLittleEndian)
                 Array.Reverse(prep);
@@ -258,15 +291,37 @@ public class ServerClientConnection
             await netS.WriteAsync(data, 0, data.Length); //write object to stream
         }
     }
-
-    public void Shutdown()
+    public async Task sendMessage(ChatMessage msg)
     {
-        active = false; //stop listening -> automatically calls Dispose shortly afterwards
-        parentServer.activeConnections.Remove(this);
-        Dispose();
+        await sendObject(Commands.ServerCommands.MessageForwarded, msg);
     }
 
-    private void Dispose()
+
+    //user-related
+    private async Task goOnline()
+    {
+        online = true;
+        parentServer.activeConnections.Add(this);
+        var newMsg = new ChatMessage("Server", username + " has entered the chat room.");
+        await parentServer.sendMessage(newMsg);
+        Console.WriteLine("{0} has come online.", username);
+    }
+
+
+    //shutdown
+    public async Task Shutdown()
+    {
+        if (parentServer.activeConnections.Contains(this))
+        {
+            online = false;
+            parentServer.activeConnections.Remove(this);
+            var newMsg = new ChatMessage("Server", username + " has left the chat room.");
+            await parentServer.sendMessage(newMsg);
+            Console.WriteLine("{0} has gone offline.", username);
+        }
+        Dispose();
+    }
+    public void Dispose()
     {
         //dispose of socket, streams etc.
         try
@@ -283,5 +338,7 @@ public class ServerClientConnection
         { handler.Dispose(); }
         catch (Exception)
         { }
+
+        receivedData = null;
     }
 }
